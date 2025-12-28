@@ -374,7 +374,12 @@ def main():
             origin = item["origin"] # tuple (x, y)
             
             font_size = item["font"]
-            font_name = "helv"
+            
+            # Use 'hebo' (Helvetica-Bold) if original was bold, else 'helv'
+            if item.get("is_bold", False):
+                font_name = "hebo"
+            else:
+                font_name = "helv"
             
             # Calculate text width to help with alignment
             text_width = fitz.get_text_length(new_text, fontname=font_name, fontsize=font_size)
