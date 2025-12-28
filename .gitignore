@@ -5,3 +5,5 @@ output/
 input/
 .env
 .gemini/
+
+debug_extract.txt
