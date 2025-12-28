@@ -12,8 +12,17 @@ HEADER_UNIT_PRICE = "Unit Price"
 HEADER_TOTAL = "Total"
 HEADER_QUANTITY = "Quantity"
 
+# Custom Fonts
+FONT_REGULAR_PATH = "fonts/ARIAL.TTF"
+FONT_BOLD_PATH = "fonts/ARIALBD.TTF"
+FONT_REGULAR_NAME = "Arial"
+FONT_BOLD_NAME = "Arial-Bold"
+
 # Regex for European currency: 1.234,56 or 1234,56 or 12,34
 CURRENCY_REGEX = r"\b[\d\.]+,\d{2}\b"
+
+# Font Size Fine-tuning
+FONT_SIZE_ADJUSTMENT = 0.5 # Adjust this value (e.g., 0.3 or 0.5) to match original text height exactly
 
 def parse_euro_decimal(text):
     """Converts '1.234,56' or 'USD 1.234,56' to Decimal('1234.56')"""
@@ -43,6 +52,30 @@ def main():
     
     for page_num, page in enumerate(doc):
         print(f"Processing Page {page_num + 1}...")
+        
+        # --- Register Custom Fonts ---
+        use_custom_fonts = False
+        font_regular_obj = None
+        font_bold_obj = None
+        
+        try:
+            # Check if font files exist
+            if os.path.exists(FONT_REGULAR_PATH) and os.path.exists(FONT_BOLD_PATH):
+                # Register for insertion
+                page.insert_font(fontname=FONT_REGULAR_NAME, fontfile=FONT_REGULAR_PATH)
+                page.insert_font(fontname=FONT_BOLD_NAME, fontfile=FONT_BOLD_PATH)
+                
+                # Create objects for width calculation
+                font_regular_obj = fitz.Font(fontfile=FONT_REGULAR_PATH)
+                font_bold_obj = fitz.Font(fontfile=FONT_BOLD_PATH)
+                
+                use_custom_fonts = True
+            else:
+                if page_num == 0: # Print warning only once
+                    print(f"Warning: Custom fonts not found at {FONT_REGULAR_PATH} or {FONT_BOLD_PATH}. Using fallback.")
+        except Exception as e:
+            print(f"Error registering fonts on page {page_num}: {e}")
+            use_custom_fonts = False
         
         # 1. Analyze structure to find column X-coordinates
         X_TOLERANCE = 20 
@@ -132,7 +165,8 @@ def main():
                     cx = (rect.x0 + rect.x1) / 2
                     
                     clean_text_for_regex = text.replace("USD", "").strip()
-                    is_bold = "bold" in span["font"].lower() or (span["flags"] & 16)
+                    font_lower = span["font"].lower()
+                    is_bold = "bold" in font_lower or "med" in font_lower or (span["flags"] & 16)
 
                     # Check for embedded total: "TOTAL: USD 123,45"
                     embedded_match = re.search(r"TOTAL:\s*USD\s*([\d\.,]+)", text)
@@ -373,16 +407,36 @@ def main():
             original_rect = item["rect"]
             origin = item["origin"] # tuple (x, y)
             
-            font_size = item["font"]
+            # Use EXACT original font size + Adjustment
+            font_size = item["font"] + FONT_SIZE_ADJUSTMENT
             
-            # Use 'hebo' (Helvetica-Bold) if original was bold, else 'helv'
-            if item.get("is_bold", False):
-                font_name = "hebo"
+            # Increase size for Total items
+            if item["type"] in ["line_total", "final_total"]:
+                font_size += 1.0
+            
+            current_font_file = None
+            
+            # Check bold status (Force bold for Line Totals)
+            is_really_bold = item.get("is_bold", False) or item["type"] == "line_total"
+
+            # Determine Font Name and Calculate Width
+            if use_custom_fonts:
+                if is_really_bold:
+                    font_name = FONT_BOLD_NAME
+                    current_font_file = FONT_BOLD_PATH
+                    text_width = font_bold_obj.text_length(new_text, fontsize=font_size)
+                else:
+                    font_name = FONT_REGULAR_NAME
+                    current_font_file = FONT_REGULAR_PATH
+                    text_width = font_regular_obj.text_length(new_text, fontsize=font_size)
             else:
-                font_name = "helv"
-            
-            # Calculate text width to help with alignment
-            text_width = fitz.get_text_length(new_text, fontname=font_name, fontsize=font_size)
+                # Fallback
+                if is_really_bold:
+                    font_name = "hebo"
+                else:
+                    font_name = "helv"
+                # Use standard fitz calculation for built-in fonts
+                text_width = fitz.get_text_length(new_text, fontname=font_name, fontsize=font_size)
             
             if item["type"] == "embedded_total":
                 # START at the same left position (keep alignment with label)
@@ -397,8 +451,8 @@ def main():
             
             # Insert the text
             try:
-                page.insert_text((x, y), new_text, fontsize=font_size, fontname=font_name, color=(0, 0, 0))
-                print(f"Inserted '{new_text}' at ({x:.1f}, {y:.1f})")
+                page.insert_text((x, y), new_text, fontsize=font_size, fontname=font_name, fontfile=current_font_file, color=(0, 0, 0))
+                print(f"Inserted '{new_text}' at ({x:.1f}, {y:.1f}) with size {font_size}")
             except Exception as e:
                 print(f"Error inserting '{new_text}': {e}")
 
