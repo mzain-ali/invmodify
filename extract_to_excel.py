@@ -5,7 +5,7 @@ import pandas as pd
 
 # Configuration
 INPUT_DIR = "input"
-OUTPUT_FILE = "output/all_invoices_data_v3.xlsx"
+OUTPUT_FILE = "output/all_invoices_data_v6.xlsx"
 
 # Header Keywords
 HEADER_UNIT_PRICE = "Unit Price"
@@ -27,6 +27,33 @@ def parse_euro_decimal(text):
 
 def is_same_line(y1, y2, tolerance=3):
     return abs(y1 - y2) < tolerance
+
+def clean_weight_value(text):
+    """Parses weight/unit text: '1,234 kg' -> 1.234, '1 set' -> 1.0"""
+    if not text: return ""
+    text_lower = text.lower()
+    
+    # Remove known units
+    for unit in ["kg", "pieces", "piece", "sets", "set", "pairs", "pair"]:
+        text_lower = text_lower.replace(unit, "")
+    
+    clean = text_lower.strip()
+    
+    # Replace decimal separator
+    clean = clean.replace(",", ".")
+    
+    # Attempt to extract just the number if there's still junk
+    # e.g. "approx 1.2" -> 1.2
+    import re
+    match = re.search(r"[\d\.]+", clean)
+    if match:
+        clean = match.group(0)
+
+    try:
+        return float(clean)
+    except ValueError:
+        if not clean: return ""
+        return clean
 
 def extract_data_from_pdf(pdf_path, filename):
     doc = fitz.open(pdf_path)
@@ -180,7 +207,7 @@ def extract_data_from_pdf(pdf_path, filename):
                     "Harmonized Code": "",
                     "Country of Origin": "",
                     "Description": desc_text_accum, 
-                    "Weight": weight_text, # Explicit Column
+                    "Weight": clean_weight_value(weight_text), # CLEANED HERE
                     "TVH Ref": ref_text,   # Explicit Column
                     "Quantity": qty,
                     "Unit Price": unit_price,
@@ -195,10 +222,9 @@ def extract_data_from_pdf(pdf_path, filename):
             elif current_item:
                 # 1. Capture content from explicit columns
                 if weight_text:
-                    # Clean up: remove 'kg', 'piece' if accidentally spanned
-                    w_clean = weight_text.lower().replace("kg", "").replace("piece", "").strip()
-                    if re.match(r"[\d,\.]+", w_clean):
-                        current_item["Weight"] = w_clean.replace(",", ".")
+                    w_val = clean_weight_value(weight_text)
+                    if w_val != "":
+                        current_item["Weight"] = w_val
                 
                 if ref_text:
                     current_item["TVH Ref"] = ref_text
